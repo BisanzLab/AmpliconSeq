@@ -35,6 +35,7 @@ The most important output is the WellsForIndexing.csv file which needs to be cop
 - [ ] Load python script on OT2
 - [ ] Calibrate all deck positions
 - [ ] Run script (Estimated run time = ~48 minutes).
+- [ ] Transfer to thermocycler and run the program described in Table 2.
 - [ ] After completion, freeze plates until quantification and pooling.
 
 ## Table 1. Indexing PCR Master Mix (3.3x)
