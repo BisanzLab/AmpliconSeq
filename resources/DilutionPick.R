@@ -1,7 +1,7 @@
 ##########################
 message("#################################################################################################################")
-message("#DilutionPickR  v0.11")
-message("#J Bisanz 18 Oct 2021")
+message("#DilutionPickR  v0.12")
+message("#J Bisanz 22 Feb 2022")
 message("#Picks appropriate dilution from primary PCR for AmpliconSeq Protocol")
 message("#################################################################################################################")
 message(" ")
@@ -24,6 +24,7 @@ option_list = list(
   make_option(c("-i", "--plateid"), type="numeric", default="1", help="Which plate are we looking at (to pull sample names)?", metavar="character"),
   make_option(c("-o", "--output"), type="character", default="WellsForIndexing.csv", help="A csv file which will contain the appropriate wells to pick", metavar="character"),
   make_option(c("-p", "--pdf"), type="character", default="PrimaryCurves.pdf", help="A set of ", metavar="character"),
+  make_option(c("-c", "--persamplecurves"), type="character", default="PerSample_PrimaryCurves.pdf", help="A set of ", metavar="character"),
   make_option(c("-r", "--rfu"), type="numeric", help="The max RFU used for picking (default=detected from samples using 3rd quartile)", metavar="numeric"),
   make_option(c("-f", "--fraction"), type="numeric", default="0.8", help="Pick the dilution closest to fraction x  RFU", metavar="numeric"),
   make_option(c("-l", "--libpath"), type="character", default="/data/shared_resources/Rlibs_4.1.0", help="Location", metavar="numeric")
@@ -137,6 +138,27 @@ amps %>%
   geom_text(data=subset(pdat, Cycle==1 & dilution==1), aes(label=SampleID, x=2, y=0.2*opt$rfu), size=2, hjust=0, vjust=1, color="black")
 ggsave(paste0("PrimaryCurves_Plate",opt$plateid,".pdf"), height=8.5, width=11, useDingbats=F)
 
+
+pdf(paste0("PerSampleCurves_Plate",opt$plateid,".pdf"), height=8.5, width=11, useDingbats=F)
+for(p in unique(pdat$SampleID)){
+  print( 
+    pdat %>%
+    filter(SampleID==p) %>%
+    mutate(Status=factor(Status, levels=c("Index","Discard"))) %>%
+    ggplot(aes(x=Cycle, y=RFU, color=paste(dilution, ": ", Well_384), group=Well_384, linetype=Status)) +
+    geom_hline(yintercept = opt$rfu, linetype="dashed", color="grey80") +
+    geom_line() +
+    ggtitle(paste0("Samples for Indexing: Plate ", opt$plateid)) +
+    scale_x_continuous(breaks=seq(1,25,5)) +
+    theme_plt() +
+    ggtitle(paste(p)) +
+    scale_color_manual(values=c("blue4", "olivedrab", "firebrick", "darkorchid"), name="Dilution")
+  )
+}
+dev.off()
+
+
+
 amps %>%
   filter(Cycle==max(amps$Cycle) & Status=="Index") %>%
   arrange(Well_96) %>%
@@ -149,3 +171,4 @@ amps %>%
   write_csv(gsub("\\.csv",paste0("_Plate",opt$plateid,".csv"),opt$output))
  
 message("---------------------------> !!!Script is complete, please manually check over outputs!!!")
+
