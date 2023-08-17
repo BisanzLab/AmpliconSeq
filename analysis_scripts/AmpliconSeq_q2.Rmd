@@ -1,9 +1,9 @@
 ---
-title: "Bisanz Lab QIIME2 Pipeline v1.0: qiime2-2021.11"
+title: "Bisanz Lab QIIME2 Pipeline v2.0: qiime2-2023.5"
 date: 'Run at `r format(Sys.time(), "%Y-%m-%d %H:%M")`'
 output: 
   html_document:
-    code_folding: show
+    code_folding: show 
     theme: spacelab
     highlight: monochrome
     fig_width: 11
@@ -11,23 +11,32 @@ output:
     toc: true
     toc_float: true
 ---
+  
+# Change Log
+
+## 16 August 2023
+
+* Updated to qiime2-2023.5
+* Updated qiime taxonomic classifier to green genes 2 
+* Discontinued support for dual-golay correction in favour of unique dual index strategy/NextSeq 600 cycle kits
+* Discontinued support for SEPP fragment insertion trees as were not being used
 
 # Instructions and User Parameters
-
-Modify the user parameters below. If this is your first time using any lab conda environment, add "source /data/shared_resources/conda_local/etc/profile.d/conda.sh" to your ~/.bash_profile using nano or equivalent.
+  
+  Modify the user parameters below. If this is your first time using any lab conda environment, add "source /data/shared_resources/conda_local/etc/profile.d/conda.sh" to your ~/.bash_profile using nano or equivalent.
 
 After adjusting the settings, run from the command line by invoking the following commands:
-
+  
 ```
-conda activate qiime2-2021.11
+conda activate qiime2-2023.5
 nohup Rscript -e "rmarkdown::render('AmpliconSeq_q2.Rmd')" > run.log &
 ```
 
 ```{bash settings}
-echo "export TemplateXLSX=/data/SequencingRuns/22Oct2021_LSDMiSeq/LSD_trackingsheet.xlsx" > settings.txt #an absolute link to the location of your run template
-echo "export ReadDir=/data/SequencingRuns/22Oct2021_LSDMiSeq/LSD_reads" >> settings.txt #an absolute directory containing your demultiplexed reads
+echo "export TemplateXLSX=/data/SequencingRuns/2023May9_IvHg_BAscreen_CBD/library_construction/230504_DBA_MSK_AmpliconSeq_TrackingSheet.xlsx" > settings.txt #an absolute link to the location of your run template
+echo "export Project=*" >> settings.txt # This would be the Sample_Project Column. Leave this as * if you want to get all samples from the
+echo "export ReadDir=/data/SequencingRuns/2023May9_IvHg_BAscreen_CBD/reads/" >> settings.txt #an absolute directory containing your demultiplexed reads
 echo "export TrimAdapters=true" >> settings.txt  #Set to true if primer is in sequence and needs to be removed
-echo "export GolayCorrect=true" >> settings.txt  #Set to true if you used the dual-golay indexing strategy and want to recover unassigned reads using error correction
 echo "export Fprimer=^GTGYCAGCMGCCGCGGTAA" >> settings.txt  #515Fmod, replace if different primer. Note older V4f primer is GTGCCAGCMGCCGCGGTAA
 echo "export Rprimer=^GGACTACNVGGGTWTCTAAT" >> settings.txt  #806Rmod, replace if different primer Note older V4r primer is GGACTACHVGGGTWTCTAAT
 echo "export TruncF=220" >> settings.txt  #equivalent to p-trunc-len-f
@@ -37,15 +46,15 @@ echo "export TrimR=0" >> settings.txt  #equivalent to trim-left-r, updated to 0 
 echo "export Suffix=_S[0-9]{1,3}_L[0-9]{1,3}_R[0-9]_001" >> settings.txt  # A regex pattern used to remove the suffix from the reads. The current provided would match BA-10112021-Negative-Control_S328_L001_R1_001.fastq.gz. 
 echo "export MinSVLen=250" >> settings.txt  # the minimum size for a sequence variant to be included in table
 echo "export MaxSVLen=255" >> settings.txt  # the maximum size for a sequence variant to be included in table
-echo "export RunSEPP=true" >> settings.txt  # should SEPP fragment insertion be run to generate a phylogenetic tree?
+echo "export ExportTrimmedReads=true" >> settings.txt # should the adapter-trimmed reads be exported (to upload to SRA etc)
 echo "export NSLOTS=18" >> settings.txt  # use 18 cores for processing
 source settings.txt
 ```
 
 ***
-
+  
 # System set up
-
+  
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message=F, warning=F)
 ```
@@ -98,6 +107,7 @@ SampleSheet<- read_excel(TemplateXLSX, sheet="SampleSheet.csv", skip=19) %>% mut
 fastqs<-
   list.files(ReadDir, recursive = TRUE, full.names = TRUE, pattern="\\.fastq\\.gz") %>%
   tibble(File=.) %>%
+  filter(!grepl("Undetermined_", File)) %>% # these are reads that could not be demultiplexed
   mutate(Sample_ID=basename(File) %>% gsub(Suffix, "", .) %>% gsub("\\.fastq\\.gz","", .) %>% gsub("-","_", .)) %>% #note: need to switch _ to - in file names
   mutate(Direction=case_when(
     grepl("_R1_", .$File) ~ "Forward_Read",
@@ -105,7 +115,9 @@ fastqs<-
   )) %>%
     spread(key=Direction, value=File)
 
-SampleSheet<-SampleSheet %>% left_join(fastqs)
+SampleSheet<-SampleSheet %>% left_join(fastqs) %>% filter(grepl(Project, Sample_Project))
+
+interactive_table(SampleSheet)
 ```
 
 Note, the following samples did not have reads found in the input directory:
@@ -121,7 +133,6 @@ SampleSheet<-SampleSheet %>% filter(!is.na(Forward_Read)) %>% mutate(Nreads_illu
 
 write_csv(SampleSheet, "Logs/Nreads_raw.txt")
 
-if(GolayCorrect!="true"){
   fastqs %>%
     select(`sample-id`=1, forward=2, reverse=3) %>%
     gather(-`sample-id`, value=`absolute-filepath`, key=`direction`) %>%
@@ -129,168 +140,11 @@ if(GolayCorrect!="true"){
     arrange(`sample-id`) %>%
     filter(`sample-id`!="Undetermined") %>%
     write_csv("Intermediates/manifest.csv")
-}
 ```
-
-# Golay correction
-
-If the dual-golay barcodes have been used, this code chunk is going to try to error correct the unassigned reads to increase the read depth per sample. These will be written to a new directory called Golay_reads. These should be uploaded to the SRA for manuscript submission if this chunk has been used.
-
-```{r golay}
-if(GolayCorrect=="true" & !file.exists("Logs/Nreads_golay.txt")){
-  if(sum(grepl("Undetermined", fastqs$Sample_ID))!=1){stop("Unassigned reads not found")}
-  dir.create("Golay_reads", showWarnings = F)
-  
-  # make a copy to add reads to. Will append a note to each read id  with the new barcodes and number of errors
-  sink<-
-  c(fastqs$Forward_Read, fastqs$Reverse_Read) %>%
-    grep("Undetermined",. ,invert = T, value=T) %>%
-    sapply(., function(x) file.copy(x, paste0("Golay_reads/", basename(x))))
-  rm(sink) # a dummy variable to capture success messages for file copies
-  
-  streamsize=1e6 # stream 1 million reads at atime
-  for_file<-FastqStreamer(subset(fastqs, Sample_ID=="Undetermined")$Forward_Read, n=streamsize)
-  rev_file<-FastqStreamer(subset(fastqs, Sample_ID=="Undetermined")$Reverse_Read, n=streamsize)
-
-  repeat{
-    for_reads<-yield(for_file)
-    rev_reads<-yield(rev_file)
-    if(length(for_reads) ==0){break}
-    
-    barcodes<-
-      for_reads@id %>%
-      as.character() %>%
-      tibble(ReadID=.) %>%
-      mutate(Barcode=str_sub(ReadID, -25)) %>%
-      separate(Barcode, c("i7","i5"), sep="\\+")
-    
-    i7_cor<-barcodes %>% 
-      pull(i7) %>% 
-      unique() %>% 
-      decode_golay() %>% 
-      select(i7=original_bc, i7_corrected=corrected_bc, i7_errors=n_errors)
-    
-    i5_cor<-barcodes %>% 
-      pull(i5) %>% 
-      unique() %>% 
-      DNAStringSet() %>%
-      reverseComplement() %>%
-      as.character() %>%
-      decode_golay() %>% 
-      select(i5=original_bc, i5_corrected=corrected_bc, i5_errors=n_errors)
-    
-    #reverse complement barcodes back to sample sheet specs
-    i5_cor$i5<-as.character(reverseComplement(DNAStringSet(i5_cor$i5)))
-    i5_cor$i5_corrected[!is.na(i5_cor$i5_corrected)]<-as.character(reverseComplement(DNAStringSet(i5_cor$i5_corrected[!is.na(i5_cor$i5_corrected)])))
-   
-    barcodes<- 
-      barcodes %>%
-      left_join(i7_cor) %>%
-      left_join(i5_cor) %>%
-      left_join(
-        SampleSheet %>% select(Sample_ID, i7_corrected=index, i5_corrected=index2)
-      ) %>%
-      select(Sample_ID, everything())
-    
-    write_tsv(barcodes, "Logs/golay.log", append=TRUE)
-
-    barcodes<-
-      barcodes %>% 
-      filter(!is.na(Sample_ID)) %>%
-      mutate(NewReadID=paste0(" corrected_bc:", i7_corrected, "+", i5_corrected, " n_errors:", i7_errors, "+", i5_errors)) %>%
-      select(Sample_ID, ReadID, NewReadID)
-       
-    sink<-
-      barcodes$Sample_ID %>%
-      unique() %>%
-      lapply(., function(x){
-      tm<-barcodes %>% filter(Sample_ID==x)
-      idx<-which(for_reads@id %in% tm$ReadID)
-      fr<-for_reads[idx]
-      rr<-rev_reads[idx]
-      tm<-tm[match(tm$ReadID, fr@id),]
-      fr@id<-BStringSet(paste0(as.character(fr@id), tm$NewReadID))
-      rr@id<-BStringSet(paste0(as.character(rr@id), tm$NewReadID))
-
-      fastqs %>% 
-        filter(Sample_ID==x) %>%
-        pull(Forward_Read) %>%
-        basename() %>%
-        paste0("Golay_reads/",.) %>%
-        writeFastq(fr, file=., mode="a")
-      
-      fastqs %>% 
-        filter(Sample_ID==x) %>%
-        pull(Reverse_Read) %>%
-        basename() %>%
-        paste0("Golay_reads/",.) %>%
-        writeFastq(rr, file=., mode="a")
-    })
-     rm(sink)   
-  }
-  close(for_file)
-  close(rev_file)
-
-  corrected<-read_tsv("Logs/golay.log", col_names=c("Sample_ID","ReadID","i7","i5","i7_corrected", "i7_errors","i5_corrected","i5_errors"))
-  validpairs<-read_csv("/data/shared_resources/databases/barcodes/empty_barcodes.csv", skip=19) %>% select(RefID=Sample_ID, i7=index, i5=index2)
-  
-  #corrected %>% filter(is.na(Sample_ID)) %>% filter(!is.na(i5_corrected) & !is.na(i7_corrected)) %>% select(i7=i7_corrected,i5=i5_corrected) %>% left_join(validpairs) %>% filter(is.na(RefID)) %>% nrow()
-  
-  correctedstats<-
-    tibble(N_Unassigned=nrow(corrected)) %>%
-    bind_cols(tibble(N_UnassignedAfterCorrection=nrow(subset(corrected, is.na(Sample_ID))))) %>%
-    bind_cols(tibble(N_AssignedAfterCorrection=nrow(subset(corrected, !is.na(Sample_ID))))) %>%
-    bind_cols(tibble(N_i7Corrected=nrow(subset(corrected, !is.na(i7_corrected))))) %>%
-    bind_cols(tibble(N_i5Corrected=nrow(subset(corrected, !is.na(i5_corrected))))) %>%
-    bind_cols(tibble(N_BothCorrected=nrow(subset(corrected, !is.na(i5_corrected) & !is.na(i7_corrected))))) %>%
-    bind_cols(tibble(N_BothCorrectedNotAssigned=nrow(subset(corrected, !is.na(i5_corrected) & !is.na(i7_corrected) & is.na(Sample_ID))))) %>%
-    bind_cols(tibble(N_BothCorrectedNotAssignedNotValid=corrected %>% filter(is.na(Sample_ID)) %>% filter(!is.na(i5_corrected) & !is.na(i7_corrected)) %>% select(i7=i7_corrected,i5=i5_corrected) %>% left_join(validpairs) %>% filter(is.na(RefID)) %>% nrow()))
-
-  cstats<-
-  correctedstats %>%
-    gather(key=Class, value=Nreads) %>%
-    filter(Class %in% c("N_UnassignedAfterCorrection", "N_AssignedAfterCorrection")) %>%
-    ggplot(aes(x=1, y=Nreads, fill=Class)) +
-    geom_bar(stat="identity", color="black") +
-    theme_void() +
-    coord_polar(theta="y") +
-    scale_fill_manual(values=c("indianred","grey50")) +
-    theme(legend.position="bottom")
-  print(cstats)
-  ggsave("Figures/Golay_Recovery.pdf", cstats, useDingbats=F, height=3, width=5)
-  
-  correctedstats %>%
-    gather(key=Class, value=Nreads) %>%
-    interactive_table()
-  
-  print(paste("Number of reads belonging to barcode combinations that should not have been seen:", correctedstats$N_BothCorrectedNotAssigned-correctedstats$N_BothCorrectedNotAssignedNotValid))
-  
-  print("Summary of I7 errors")
-  print(summary(corrected$i7_errors))
-  print("Summary of I5 errors")
-  print(summary(corrected$i5_errors))
-
-  rm(corrected, correctedstats, validpairs, barcodes, for_file, for_reads, i5_cor, i7_cor, rev_file, rev_reads, streamsize)
-  
-    fastqs %>%
-    select(`sample-id`=1, forward=2, reverse=3) %>%
-    gather(-`sample-id`, value=`absolute-filepath`, key=`direction`) %>%
-    select(1,3,2) %>%
-    arrange(`sample-id`) %>%
-    mutate(`absolute-filepath`=`absolute-filepath` %>% basename() %>% paste0(getwd(), "/Golay_reads/", .)) %>%
-    filter(`sample-id`!="Undetermined") %>%
-    write_csv("Intermediates/manifest.csv")
-  
-  SampleSheet<-SampleSheet %>% mutate(Nreads_Golay=countFastq(paste0("Golay_reads/", basename(Forward_Read)))$records)
-  write_csv(SampleSheet, "Logs/Nreads_golay.txt")
-}
-```
-
-In the data above, check the number of reads which have been recovered. This is expected to be ~10% of unassigned reads although testing is preliminary. Also check the number of reads which were assigned to barcodes which were not used. If this number is high it could suggest incorrect index usage or heavy cross contamination of indices.
 
 # Read quality
 
-Inspect the plot below to make sure that the default trimming parameters were appropriate (220/150). Note that trimming is after adapter removal so the actual point of clipping is 20bp after the parameter (ie 240/170).
+Inspect the plot below to make sure that the default trimming parameters are appropriate (220/150). Note that trimming is after adapter removal so the actual point of clipping is 20bp after the parameter (ie 240/170). 3 random samples are being pulled. Note: negative controls will likely show a steep drop off in quality which is due to the remaining reads being adapter dimers rather than complete sequences.
 
 ```{r plotreadqual}
 SampleSheet %>%
@@ -348,11 +202,25 @@ else
 fi
 ```
 
+Optionally export fastq files for upload to SRA.
+
+```{bash exportreads}
+source settings.txt
+if $ExportTrimmedReads; then
+ echo $(date) Exporting trimmed reads to reads_trimmed
+  qiime tools export \
+  --input-path $PWD/Intermediates/Reads_filt.qza \
+  --output-path $PWD/Reads_forSRA
+else
+  echo $(date) Skipping read export
+fi
+```
+
 ***
 
 # Dada2 and Feature Table Building
 
-This next step incompasses the Dada2 workflow. Reads are trimmed, quality filtered, denoised, and chimeras are removed.
+This next step encompasses the Dada2 workflow. Reads are trimmed, quality filtered, denoised, and chimeras are removed.
 
 ```{bash dada2}
 source settings.txt
@@ -424,8 +292,6 @@ print(paste0(
   (sum(read_qza("Intermediates/SVtable.qza")$data)-sum(read_qza("Output/ASV_table.qza")$data))/sum(read_qza("Intermediates/SVtable.qza")$data)*100,
   "% of reads"
 ))
-
-
 ```
 
 
@@ -433,45 +299,14 @@ print(paste0(
 
 The purpose this section is to examine the number of reads lost on a per sample basis at each step of the pipeline. Also to spot if there are any issues with locations on plates and/or any evidence of column/column tranpositions.
 
-## Sample Location
 
-Be sure to cross reference these results against your sample layout including where the negative controls are.
-
-```{r readlayout}
-SampleSheet %>%
-  select(Sample_ID, Nreads_illumina, Sample_Plate, Sample_Well) %>%
-  mutate(Row=gsub("[0-9]","", Sample_Well)) %>%
-  mutate(Column=gsub("[A-Z]","", Sample_Well)) %>%
-  mutate(Row=factor(Row, levels=rev(LETTERS[1:8]))) %>%
-  mutate(Column=as.numeric(Column)) %>%
-  ggplot(aes(x=Column, y=Row, fill=Nreads_illumina)) +
-  geom_tile() +
-  scale_fill_gradient(low="white",high="indianred") +
-  theme_q2r() +
-  scale_x_continuous(breaks = 1:12) +
-  coord_cartesian(expand=F) +
-  facet_wrap(~Sample_Plate)
-
-ggsave("Figures/Reads_by_layout.pdf", height=8.5, width=11, useDingbats=F)
-```
-
-## Read Loss by Step
-
-Hopefully no individual step should cause a massive loss in reads. For example: quality filtering.
-
-```{r lossbystep}
-if(GolayCorrect=="true"){
+```{r readloss}
 ReadTracking<-
-  read_csv("Logs/Nreads_golay.txt") %>%
-  select(Sample_ID, bcl2fastq=Nreads_illumina, Golay_Correction=Nreads_Golay)
-} else {  
-  ReadTracking<-
   SampleSheet %>%
-  select(Sample_ID, Nreads_illumina)
-}
+  select(Sample_ID, Sample_Plate, Sample_Well, Nreads_illumina)
   
 ReadTracking<-
-ReadTracking %>%
+  ReadTracking %>%
   left_join(
     read_qza("Logs/Dada_stats.qza")$data %>%
      rownames_to_column("Sample_ID") %>%
@@ -484,12 +319,18 @@ ReadTracking %>%
     read_qza("Output/ASV_table.qza")$data %>%
     colSums() %>% data.frame(Size_Selection=.) %>% rownames_to_column("Sample_ID")
   )
+
 interactive_table(ReadTracking)
+```
+
+## By Step in Pipeline
+
+```{r lossbystep}
 
 rplot<-
 ReadTracking %>%
-  gather(-Sample_ID, key=Step, value=Nreads) %>%
-  mutate(Step=factor(Step, levels=colnames(ReadTracking)[-1])) %>%
+  pivot_longer(!c(Sample_ID, Sample_Well, Sample_Plate),  names_to="Step", values_to ="Nreads") %>%
+  mutate(Step=factor(Step, levels=colnames(ReadTracking)[-(1:3)])) %>%
   ggplot(aes(x=Step, y=Nreads, group=Sample_ID, label=Sample_ID)) +
   geom_line() +
   theme_q2r() +
@@ -500,6 +341,55 @@ ReadTracking %>%
 ggplotly(rplot)
 ggsave("Figures/Read_Tracking.pdf", rplot, device="pdf", height=6, width=4, useDingbats=F)
 rm(rplot)
+```
+
+
+## Sample Location
+
+Be sure to cross reference these results against your sample layout including where the negative controls are.
+
+```{r readlayout}
+ReadTracking %>%
+  mutate(Row=gsub("[0-9]","", Sample_Well)) %>%
+  mutate(Column=gsub("[A-Z]","", Sample_Well)) %>%
+  mutate(Row=factor(Row, levels=rev(LETTERS[1:8]))) %>%
+  mutate(Column=as.numeric(Column)) %>%
+  dplyr::rename(FinalReadCount=Size_Selection) %>%
+  mutate(FinalReadCount=if_else(is.na(FinalReadCount), 0, FinalReadCount)) %>%
+  ggplot(aes(x=Column, y=Row, fill=FinalReadCount, label=Sample_ID)) +
+  geom_tile() +
+  geom_text(size=0.5) +
+  scale_fill_gradient(low="white",high="indianred") +
+  theme_q2r() +
+  scale_x_continuous(breaks = 1:12) +
+  coord_cartesian(expand=F) +
+  facet_wrap(~Sample_Plate)
+
+ggsave("Figures/Reads_by_layout.pdf", height=8.5, width=11, useDingbats=F)
+```
+
+## Comparison to Pooling Volumes
+
+This is help to detect systematic problems that may have occurred during quantification/normalization. Hopefully there would be no relationship if normalized correctly
+
+```{r readcorr}
+loadcorr<-
+ReadTracking %>%
+  left_join(
+    read_excel(TemplateXLSX, sheet="Loading.csv", skip=1) %>% dplyr::rename(Sample_Plate=plate, Sample_Well=well, Volume_ul=volume)
+  )
+  
+loadcorr %>%
+  filter(Size_Selection>=5000) %>%
+  ggplot(aes(x=Volume_ul, y=Size_Selection)) +
+  geom_point() +
+  theme_q2r() +
+  geom_smooth(method="loess") +
+  xlab("Volume Pooled (ul)") +
+  ylab("Final Read Count")
+
+rm(loadcorr)
+ggsave("Figures/Reads_by_loadingvolume.pdf", height=8.5, width=11, useDingbats=F)
 ```
 
 ## Count Distribution
@@ -522,13 +412,15 @@ ggsave("Figures/Read_Tracking.pdf", device="pdf", height=2, width=3, useDingbats
 
 ## QIIME feature-classifier
 
+This is assigning taxonomy against the current version of the Green Genes database (specific to V4). This would need to be updated for alternate seq strategies.
+
 ```{bash q2tax}
 source settings.txt
 if [ ! -f $PWD/Output/SV_taxonomy_QIIME.qza ]; then
   echo $(date) Assignning Taxonomy with QIIME2
   
   qiime feature-classifier classify-sklearn \
-    --i-classifier /data/shared_resources/databases/Q2_2021.8db/silva-138-99-515-806-nb-classifier.qza \
+    --i-classifier /data/shared_resources/databases/Q2_2023.5_db/gg_2022_10_backbone.v4.nb.qza \
     --i-reads $PWD/Output/ASV_sequences.qza \
     --o-classification $PWD/Output/ASV_q2taxonomy.qza \
     --p-n-jobs $NSLOTS
@@ -543,12 +435,13 @@ fi
 if(!file.exists("Output/ASV_d2taxonomy.txt")){
   message(date(), " Assigning taxonomy with dada2")
   seqs<-read_qza("Output/ASV_sequences.qza")$data
-  taxonomy <- assignTaxonomy(as.character(seqs), "/data/shared_resources/databases/SILVA138_dada2/silva_nr99_v138.1_wSpecies_train_set.fa.gz", multithread=NSLOTS)
-  taxonomy <- addSpecies(taxonomy, "/data/shared_resources/databases/SILVA138_dada2/silva_species_assignment_v138.1.fa.gz", allowMultiple=TRUE)
+  taxonomy <- assignTaxonomy(as.character(seqs), "/data/shared_resources/databases/Q2_2023.5_db/silva_nr99_v138.1_wSpecies_train_set.fa.gz", multithread=as.integer(NSLOTS))
+  taxonomy <- addSpecies(taxonomy, "/data/shared_resources/databases/Q2_2023.5_db/silva_species_assignment_v138.1.fa.gz", allowMultiple=TRUE)
+  
+  colnames(taxonomy)[8]<-"Species_ambiguous"
   
   as.data.frame(taxonomy) %>% 
     rownames_to_column("Sequence") %>% 
-    select(everything(), Species_ambiguous=9) %>% 
     left_join(tibble(ASV=names(seqs), Sequence=as.character(seqs))) %>%
     select(ASV, Kingdom, Phylum, Class, Order, Family, Genus, Species, Species_ambiguous, Sequence) %>%
     write_tsv("Output/ASV_d2taxonomy.txt")
@@ -621,43 +514,29 @@ read_qza("Output/ASV_denovotree.qza")$data %>%
 ggsave("Figures/Tree_DeNovo.pdf",device="pdf", useDingbats=F, height=8.5, width=11)
 ```
 
-
-## Fragment Insertion
-
-```{bash sepp}
-source settings.txt
-if [ ! -f $PWD/Output/ASV_insertiontree.qza ] & $RunSEPP ; then
-  echo $(date) Building Tree with SEPP
-  
-  qiime fragment-insertion sepp \
-    --i-representative-sequences $PWD/Output/ASV_sequences.qza \
-    --i-reference-database /data/shared_resources/databases/Q2_2021.8db/sepp-refs-silva-128.qza \
-    --p-threads $NSLOTS \
-    --o-tree $PWD/Output/ASV_insertiontree.qza \
-    --o-placements $PWD/Output/ASV_placements.qza \
-    --verbose
-    
-else
-  echo $(date) Skipping SEPP
-fi
-```
-
 ***
 
 # Exploratory Data Analysis
 
 ## PCA
 
+Note: samples with less than 5,000 reads are being filtered out before downstream analysis.
+
 ```{r pca}
+
+asv_table<-read_qza("Output/ASV_table.qza")$data
+asv_table<-asv_table[,colSums(asv_table)>5000] %>% filter_features(1,1)
+
 richness<-
-  read_qza("Output/ASV_table.qza")$data %>%
+  asv_table %>%
   subsample_table(verbose = FALSE) %>%
-  vegan::specnumber(, MARGIN=2) %>%
+  vegan::specnumber(., MARGIN=2) %>%
   data.frame(Obs_ASVs=.) %>%
   rownames_to_column("SampleID")
 
 pc<-
-read_qza("Output/ASV_table.qza")$data %>%
+  asv_table %>%
+  filter_features(3,3) %>%
   make_clr() %>%
   t() %>%
   prcomp()
@@ -717,7 +596,6 @@ Removing the Read artifacts to avoid double storage of the sequencing data and c
 ```{bash cleanup}
 rm Intermediates/Reads.qza
 rm Intermediates/Reads_filt.qza
-pigz Logs/golay.log
 ```
 
 ***
@@ -726,6 +604,6 @@ Pipeline complete. Additional QC may be required. See Output directory for the f
 
 * ASV_table.qza: Your feature table
 * ASV_d2taxonomy.txt: Your taxonomy and ASV sequence information.
-* ASV_denovotree.qza OR ASV_insertiontree.qza: Phylogenetic trees for UniFrac/PhILR, etc.
+* ASV_denovotree.qza: Phylogenetic trees for UniFrac/PhILR, etc.
 
 ***
