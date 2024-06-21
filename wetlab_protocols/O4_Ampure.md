@@ -6,6 +6,7 @@ If significant primer dimer formation has occured, these will be quantified by t
 ## Note
 When making fresh 70% ethanol, do not add ethanol and fill the rest of the volume with water because this will lead to the incorrect ethanol percentage. Instead, add 70 mL of ethanol and 30 mL of water for a total volume of 100 mL of 70% ethanol.
 
+
 ## Automated Method
 
 ### Materials
@@ -33,8 +34,8 @@ When making fresh 70% ethanol, do not add ethanol and fill the rest of the volum
 ## Manual Method
 ### Materials
 - [ ] Ampure XP clean up beads (A63881) *Note: these can be made from scratch for significantly cheaper but may have less consistent size-selection properties**
-- [ ] 8x200ul multichannel
-- [ ] 5 boxes of 200µL filtered tips (USA Scientific 1120-8710)
+- [ ] 8x300ul multichannel
+- [ ] 4 boxes of 200µL filtered tips (Opentrons 999-00081)
 - [ ] 100% Ethanol
 - [ ] Nuclease Free Water
 - [ ] Bio-Rad 96 Well Plate 200 µL skirted PCR plate  (Biorad hsp9601) OR  TemPlate Semi-Skirt 0.2mL PCR Plate (USA Scientific 1402-9200)
@@ -47,9 +48,9 @@ When making fresh 70% ethanol, do not add ethanol and fill the rest of the volum
 - [ ] Incubate 5 min at room temperature
 - [ ] Capture on magnetic stand for 8 minutes or until clear
 - [ ] Discard of supernatant
-- [ ] Add 200µL ethanol to each well and let stand at least 30 seconds
+- [ ] Add 100µL ethanol to each well and let stand at least 30 seconds
 - [ ] Remove superantant
-- [ ] Add 200µL ethanol to each well and let stand at least 30 seconds
+- [ ] Add 100µL ethanol to each well and let stand at least 30 seconds
 - [ ] Remove superantant
 - [ ] Air dry for 30 minutes or until beads are dry
 - [ ] Add 30uL nuclease free water and pipette to mix
