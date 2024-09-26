@@ -70,17 +70,17 @@ ITS2_Nextera | ITS | ITS1 | GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAGGCTGCGTTCTTCATCGA*
 ITS4_Nextera | ITS | ITS2 | GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAGTCCTCCGCTTATTGATATGC
 
 **Table 2. Primary PCR Master Mix**
-Component	| 1 Rxn (µL) | 420 Rxns (µL) 
+Component	| 1 Rxn (µL) | 440 Rxns (µL) 
 ----------|------------|--------------
-Nuclease-free H2O	| 5.2055 | 2186.31
-5x KAPA HiFi Buffer	| 1.8	| 756
-10 mM dNTPs	| 0.27 |	113.4
-DMSO	| 0.45	| 189
-1000x SYBR Green	| 0.0045	| 1.89
-100 µM Forward Primer	| 0.045	| 18.9
-100 µM Reverse Primer	| 0.045	| 18.9
-KAPA HiFi polymerase	| 0.18	| 75.6
-Template | 1.0 | 420
+Nuclease-free H2O	| 5.2055 | 2290.42
+5x KAPA HiFi Buffer	| 1.8	| 792
+10 mM dNTPs	| 0.27 |	118.8
+DMSO	| 0.45	| 198
+1000x SYBR Green	| 0.0045	| 1.98
+100 µM Forward Primer	| 0.045	| 19.8
+100 µM Reverse Primer	| 0.045	| 19.8
+KAPA HiFi polymerase	| 0.18	| 79.2
+Template | 1.0 | 440
 **Total**	| **9.0**	| **3780.0**
 
 **Table 3. Primary PCR Amplification Parameters**
